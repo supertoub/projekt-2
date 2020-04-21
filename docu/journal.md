@@ -14,3 +14,12 @@ Nächstes Meeting: 6.3.2020 16:00 Cafeteria Biel
 Vogel Unterricht jeweils Montag & Dienstag in Bern
 Aufgabe auf nächstes mal: Ziele definieren
 
+
+## ?
+Getting Data from Wikidata
+
+## 20.4.2020
+Implementing simple REST Api to classify Name
+
+## 21.4.2020
+Testing implementation against real world Data

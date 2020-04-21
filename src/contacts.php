@@ -48,20 +48,19 @@
             }
           }
         }
+        print_r($tmp);
         foreach ($tmp as $key => $value) {
           if($value['count'] !== 1) {
             if(isset($response['firstname'])) {
               $response['lastname'] = $key;
               if(isset($value['origin'])) {
-                $response['firstname']['origin'] = $value['origin'];
+                $response['lastname']['origin'] = $value['origin'];
                 // TODO detect names that can be switched like robert franz
               }
             }
             if(isset($response['lastname'])) {
               $response['firstname']['value'] = $key;
-              if($value['type'] == 'firstname') {
-                $response['firstname']['gender'] = $value['gender'];
-              }
+              $response['firstname']['gender'] = $value['gender'];
               if(isset($value['origin'])) {
                 $response['firstname']['origin'] = $value['origin'];
               }
