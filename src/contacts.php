@@ -1,23 +1,34 @@
 <?php
   header("Content-Type:application/json");
   $input_string = $_GET['string'];
-  if(strpos($input_string, '@') !== false) {
-    $domain = explode('@', $input_string)[1];
-    $response['domainname'] = explode('.', $domain)[0];
-    $response['toplevel'] = explode('.', $domain)[1];
-    $fullname = explode('@', $input_string)[0];
-    $response['firstname'] = explode('.', $fullname)[0];
-    $response['lastname'] = explode('.', $fullname)[1];
-    echo json_encode($response);
-  }
-  else {
-    if($input_string !== '') {
-      getName($input_string);
+  global $response;
+  if(isset($input_string)) {
+    if(strpos($input_string, '@') !== false) {
+      $response['email'] = $input_string;
+      $response['domain'] = explode('@', $input_string)[1];
+      $fullname = explode('@', $input_string)[0];
+      $fullname = str_replace('.', ' ', $fullname);
+      getCompany($response['domain']);
     }
+    else {
+      $fullname = $input_string;
+    }
+    getName($fullname);
+  }
+
+  function getCompany($domain) {
+    include 'credentials.php';
+    global $response;
+    $domain = urlencode($domain);
+    $maps = file_get_contents("https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={$domain}&inputtype=textquery&fields=name,formatted_address,place_id&key={$googleapikey}");
+    $result = json_decode($maps);
+    $response['company']['name'] = $result->candidates[0]->name;
+    $response['company']['adress'] = $result->candidates[0]->formatted_address;
   }
 
   function getName($string) {
-    include_once 'credentials.php';
+    include 'credentials.php';
+    global $response;
     try {
         $pdo = new PDO("mysql:host={$host};dbname={$dbname};charset=utf8", $username, $password);
         $names = explode(' ', $string);
@@ -48,7 +59,6 @@
             }
           }
         }
-        print_r($tmp);
         foreach ($tmp as $key => $value) {
           if($value['count'] !== 1) {
             if(isset($response['firstname'])) {
@@ -72,4 +82,3 @@
           throw new \PDOException($e->getMessage(), (int)$e->getCode());
       }
   }
-
