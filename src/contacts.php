@@ -5,25 +5,63 @@
   if(isset($input_string)) {
     if(strpos($input_string, '@') !== false) {
       $response['email'] = $input_string;
-      $response['domain'] = explode('@', $input_string)[1];
+      $domain = explode('@', $input_string)[1];
+      $response['domain'] = $domain;
       $fullname = explode('@', $input_string)[0];
       $fullname = str_replace('.', ' ', $fullname);
-      getCompany($response['domain']);
+      getCompany($domain);
+      getName($fullname);
+      getPersonDetail($fullname, $domain);
     }
     else {
-      $fullname = $input_string;
+      getName($input_string);
     }
-    getName($fullname);
+    echo json_encode($response);
+  }
+
+  function getPersonDetail($name, $domain) {
+    include 'credentials.php';
+    global $response;
+    $search = "site:{$domain} \"{$name}\"";
+    $search = urlencode($search);
+    $about = file_get_contents("https://www.googleapis.com/customsearch/v1?cx=006584671418311382743:jt36an3ix9p&q={$search}&fields=items(link)&key={$googleapikey}");
+    $result = json_decode($about);
+    if(isset($result->items[0]->link)) {
+      $response['more'] = $result->items[0]->link;
+    }
   }
 
   function getCompany($domain) {
     include 'credentials.php';
     global $response;
-    $domain = urlencode($domain);
-    $maps = file_get_contents("https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={$domain}&inputtype=textquery&fields=name,formatted_address,place_id&key={$googleapikey}");
-    $result = json_decode($maps);
-    $response['company']['name'] = $result->candidates[0]->name;
-    $response['company']['adress'] = $result->candidates[0]->formatted_address;
+    try {
+      $pdo = new PDO("mysql:host={$host};dbname={$dbname};charset=utf8", $username, $password);
+      $query = $pdo->prepare("select * from company where website like '%{$domain}%'");
+      $query->execute();
+      $results = $query->fetchAll(PDO::FETCH_ASSOC);
+      if(count($results) == 0) {
+        $maps = file_get_contents("https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={$domain}&inputtype=textquery&fields=name,formatted_address,place_id&key={$googleapikey}");
+        $result = json_decode($maps);
+        $response['company']['name'] = $result->candidates[0]->name;
+        $place_id = $result->candidates[0]->place_id;
+        $maps_detail = file_get_contents("https://maps.googleapis.com/maps/api/place/details/json?place_id={$place_id}&fields=international_phone_number,adr_address,website&key={$googleapikey}");
+        $result = json_decode($maps_detail);
+        $response['company']['phone'] = $result->result->international_phone_number;
+        $response['company']['address'] = $result->result->adr_address;
+        $response['company']['website'] = $result->result->website;
+        $query = "REPLACE INTO company (place_id, companyname, phone, companyaddress, website) VALUES ('{$place_id}', '{$response['company']['name']}', '{$response['company']['phone']}', '{$response['company']['address']}', '{$response['company']['website']}')";
+        $query = $pdo->prepare($query);
+        $query->execute();
+      }
+      else {
+        $response['company']['name'] = $results[0]['companyname'];
+        $response['company']['phone'] = $results[0]['phone'];
+        $response['company']['address'] = $results[0]['companyaddress'];
+        $response['company']['website'] = $results[0]['website'];
+      }
+    } catch (\PDOException $e) {
+          throw new \PDOException($e->getMessage(), (int)$e->getCode());
+      }
   }
 
   function getName($string) {
@@ -75,10 +113,13 @@
                 $response['firstname']['origin'] = $value['origin'];
               }
             }
+            else {
+              $response['name'] = $string;
+            }
           }
         }
-        echo json_encode($response);
       } catch (\PDOException $e) {
           throw new \PDOException($e->getMessage(), (int)$e->getCode());
       }
   }
+
