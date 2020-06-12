@@ -26,9 +26,47 @@
     $search = urlencode($search);
     $about = file_get_contents("https://www.googleapis.com/customsearch/v1?cx=006584671418311382743:jt36an3ix9p&q={$search}&fields=items(link)&key={$googleapikey}");
     $result = json_decode($about);
-    if(isset($result->items[0]->link)) {
+    if(isset($result->items[0])) {
       $response['more'] = $result->items[0]->link;
     }
+    $search = "\"{$name}\" {$domain}";
+    $search = urlencode($search);
+    $image = file_get_contents("https://www.googleapis.com/customsearch/v1?cx=006584671418311382743:jt36an3ix9p&q={$search}&fields=items(link)&searchType=image&key={$googleapikey}");
+    $result = json_decode($image);
+    if(isset($result->items[0])) {
+      $response['image']['src'] = $result->items[0]->link;
+      $url = 'https://francecentral.api.cognitive.microsoft.com/face/v1.0/detect?returnFaceAttributes=age,gender';
+      $data = array('url' => $result->items[0]->link);
+      $data_string = json_encode($data);
+
+      // use key 'http' even if you send the request to https://...
+
+      $options = array(
+          'http' => array(
+              'header'  => array("Ocp-Apim-Subscription-Key: " + $azzure_key, "Content-Type: application/json; charset=utf-8"),
+              'method'  => 'POST',
+              'content' => $data_string
+          )
+      );
+      $context  = stream_context_create($options);
+      $result = file_get_contents($url, false, $context);
+      $response['image']['rectangle']['top'] = json_decode($result)[0] -> faceRectangle -> top;
+      $response['image']['rectangle']['left'] = json_decode($result)[0] -> faceRectangle -> left;
+      $response['image']['rectangle']['width'] = json_decode($result)[0] -> faceRectangle -> width;
+      $response['image']['rectangle']['height'] = json_decode($result)[0] -> faceRectangle -> height;
+      $response['image']['age'] = date("Y") - json_decode($result)[0] -> faceAttributes -> age;
+      $response['image']['gender'] = json_decode($result)[0] -> faceAttributes ->gender;
+    }
+    else{
+      $response['image'] = '';
+    }
+      /*libxml_use_internal_errors(true);
+      $dom = new DomDocument;
+      $dom->loadHTMLFile($response['more']);
+      $xpath = new DomXPath($dom);
+      $img = $xpath->query("//*[text()[contains( translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'sebastian fluri')]]/../img")[0]->nodeValue;
+      print_r($img);
+      $response['img'] = $img;*/
   }
 
   function getCompany($domain) {
@@ -36,28 +74,38 @@
     global $response;
     try {
       $pdo = new PDO("mysql:host={$host};dbname={$dbname};charset=utf8", $username, $password);
-      $query = $pdo->prepare("select * from company where website like '%{$domain}%'");
+      $query = $pdo->prepare("select * from company where domain like '%{$domain}%'");
       $query->execute();
       $results = $query->fetchAll(PDO::FETCH_ASSOC);
       if(count($results) == 0) {
-        $maps = file_get_contents("https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={$domain}&inputtype=textquery&fields=name,formatted_address,place_id&key={$googleapikey}");
-        $result = json_decode($maps);
-        $response['company']['name'] = $result->candidates[0]->name;
-        $place_id = $result->candidates[0]->place_id;
-        $maps_detail = file_get_contents("https://maps.googleapis.com/maps/api/place/details/json?place_id={$place_id}&fields=international_phone_number,adr_address,website&key={$googleapikey}");
-        $result = json_decode($maps_detail);
-        $response['company']['phone'] = $result->result->international_phone_number;
-        $response['company']['address'] = $result->result->adr_address;
-        $response['company']['website'] = $result->result->website;
-        $query = "REPLACE INTO company (place_id, companyname, phone, companyaddress, website) VALUES ('{$place_id}', '{$response['company']['name']}', '{$response['company']['phone']}', '{$response['company']['address']}', '{$response['company']['website']}')";
-        $query = $pdo->prepare($query);
-        $query->execute();
+        libxml_use_internal_errors(true);
+        $dom = new DomDocument;
+        $dom->loadHTMLFile("https://www.google.com/search?q={$domain}");
+        $xpath = new DomXPath($dom);
+        $response['company']['name'] = $xpath->query("//*[contains(@style,'max-width:72px;max-height:72px')]/../following-sibling::*")[0]->nodeValue;
+        $description = $xpath->query("//*[contains(@style,'max-width:72px;max-height:72px')]/../following-sibling::*")[1]->nodeValue;
+        if(preg_match('/\r\n|\r|\n/',$description)) {
+          $response['company']['segment'] = preg_split('/\r\n|\r|\n/', $description)[1];
+        }
+        else{
+          $response['company']['segment'] = $description;
+        }
+        $response['company']['address'] = $xpath->query("//*[contains(text(),'Adresse')]/../following-sibling::*")[0]->nodeValue;
+        $response['company']['phone'] = $xpath->query("//*[contains(text(),'Telefonnummer')]/../following-sibling::*")[0]->nodeValue;
+        $url = $xpath->query("//*[contains(text(),'Website')]/../@href")[0]->nodeValue;
+        if($url != '') {
+          $response['company']['domain'] = explode('/',explode('://', $url)[1])[0];
+          $query = "REPLACE INTO company (companyname, companyaddress, segment, domain, phone) VALUES ('{$response['company']['name']}', '{$response['company']['address']}', '{$response['company']['segment']}', '{$response['company']['domain']}', '{$response['company']['phone']}')";
+          $query = $pdo->prepare($query);
+          $query->execute();
+        }
       }
       else {
         $response['company']['name'] = $results[0]['companyname'];
+        $response['company']['segment'] = $results[0]['segment'];
         $response['company']['phone'] = $results[0]['phone'];
         $response['company']['address'] = $results[0]['companyaddress'];
-        $response['company']['website'] = $results[0]['website'];
+        $response['company']['domain'] = $results[0]['domain'];
       }
     } catch (\PDOException $e) {
           throw new \PDOException($e->getMessage(), (int)$e->getCode());
@@ -73,6 +121,10 @@
         $query = "select * from (select gender, name, substring_index(origin, ',', 1) as origin, 'firstname' as type from firstname union select null, name, substring_index(origin, ',', 1) as origin, 'lastname' as type from lastname) as names where ";
         foreach ($names as $name) {
           $query .= "lower(name) = '".strtolower($name)."' or ";
+          $name = str_replace("ue", "ü", strtolower($name));
+          $name = str_replace("ae", "ä", strtolower($name));
+          $name = str_replace("oe", "ö", strtolower($name));
+          $query .= "lower(name) = '".$name."' or ";
         }
         $query = substr($query, 0, -4);
         //$query .= " collate utf8_general_ci";
@@ -122,4 +174,3 @@
           throw new \PDOException($e->getMessage(), (int)$e->getCode());
       }
   }
-
